@@ -11,7 +11,7 @@
 
 (defconstant +user-status-codes+ '((UNCONFIRMED . 0)
                                    (CONFIRMED . 2)
-                                   (ACTIVE . 3)
+                                   (ACTIVE . 4)
                                    (PASSWORD-RESET-REQUESTED . 5)
                                    (BLOCKED . 10)
                                    (DELETED . 99)))

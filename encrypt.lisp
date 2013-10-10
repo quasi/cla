@@ -9,7 +9,6 @@
 ;;; FIXME how to fetch this one from some secure location ?
 (defvar *key* nil "The AES key used for encryption/decryption of the auth cookie. Very important.")
 
-;;; FIXME - have to move this to tripr:load.lisp - tripr text-string "tripr encryption key"
 (defun construct-cipher-for-encrypt (text-string)
   ""
   (setf *key* (ironclad:make-cipher :blowfish :mode :ecb :key (ironclad:ascii-string-to-byte-array text-string))))

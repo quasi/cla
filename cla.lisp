@@ -7,23 +7,6 @@
 
 (in-package :cla)
 
-(export '(reset-password reset-password-request new-user-registration do-login cla-init complete-user-registration change-login-data-password verify-comfirmation-reset-url))
-
-
-;;; Registers a new user in the system. The status of the user is unconfirmed untill he confirms it.
-;;; Valid email-id and password are needed here. Password strength chould should happen before this step.
-(defun new-user-registration (email-id password)
-  "Registers a new user. Returns LOGIN-DATA data-structure."
-  (when (or (not password) (not email-id))
-    (error 'cla-registration-error :format-control "Password and email-id both needed!"))
-  (with-cla-db
-    (if (find-user 'EMAIL-ID email-id)
-        (error 'cla-registration-error :format-control "Email-id: ~A already exists in the system." :format-arguments (list email-id))
-        (progn
-          (add-new-user email-id (hash-password password))
-          (find-user 'EMAIL-ID email-id))))) ;;FIXME : check for existance or throw error
-
-
 
 ;;; TODO error conditions
 (defun do-login (email-id password)
@@ -47,63 +30,56 @@
 
 
 (defun do-logout (login-data-id)
+  "Logout. Destroyes the cookie as well as _ALL_ the LOGIN-INSTANCEs"
   (destroy-auth-cookie)
   (delete-login-instances login-data-id 0))
 
 
-;;; Confirming user registration or varifying user email address
-(defun verify-comfirmation-reset-url (confirmation-reset-url)
-  "Finds the user with the url in the db, changes the user status to 2 and delets the url from the db and returns t.
-   If url is not found returns nil"
+;;; Registers a new user in the system. The status of the user is UNCONFIRMED until he confirms it by clicking the CONFIRMATION-URL.
+;;; Valid email-id and password are needed here. Password strength check should happen before this step.
+(defun new-user-registration (email-id password)
+  "Registers a new user. Returns LOGIN-DATA data-structure."
+  (when (or (not password) (not email-id))
+    (error 'cla-registration-error :format-control "Password and email-id both needed!"))
   (with-cla-db
-    (find-user 'CONFIRMATION-RESET-URL confirmation-reset-url)))
+    (if (find-user 'EMAIL-ID email-id)
+        (error 'cla-registration-error :format-control "Email-id ~A already exists in the system." :format-arguments (list email-id))
+        (progn
+          (add-new-user email-id (hash-password password))
+          (find-user 'EMAIL-ID email-id))))) ;;FIXME : check for existance or throw error
 
 
-;;; confirming and deleting the confirmation-reset-url
-(defun complete-user-registration (id)
-  ""
-  (with-cla-db
-    (update-user id 'user-status (user-status-code 'CONFIRMED))
-    (update-user id 'confirmation-reset-url "")))
+(defun complete-user-registration (email-id confirmation-url)
+  "Complete user registration. Verify the confirmation-url and change the user status to CONFIRMED."
+  (let ((login-data (find-user 'EMAIL-ID email-id)))
+    (cond (((not login-data)
+            (error 'cla-registration-error
+                   :format-control "Panic! No account for this email-id: ~A !"
+                   :format-arguments (list email-id)))
+           ((string/= confirmation-url (confirmation-reset-url login-data))
+            (error 'cla-registration-error
+                   :format-control "Confrimation URL does not match."))
+           (t
+            (update-user id 'user-status (user-status-code 'CONFIRMED))
+            (update-user id 'confirmation-reset-url ""))))))
 
 
-
-;;; FIXME init function
-(defun quasi-test-cla-init ()
-  "Creates the cipher for the encrypt/decrypt"
-  (progn
-    (construct-cipher-for-encrypt "quasi test")
-    (setf +cla-database-type+ :mysql
-          +cla-database-username+ "quasi"
-          +cla-database-password+ "quasi"
-          +cla-database-host+ "127.0.0.1"
-          +cla-database-name+ "quasidb")))
-
-;;; Temp function for initial testing purposes
-;; (defun add-users-to-login-data ()
-;;   (new-user-registration "percy@quasilab.in" "percy123")
-;;   (new-user-registration "quasi@quasilab.in" "quasi123")
-;;   (new-user-registration "dinsesh@quasilab.in" "dinesh123")
-;;   (new-user-registration "shot@quasilab.in" "shot123"))
-
-
-;;; to register new user from the console
-
-(defun cla-new-user-registration-console (email-id password)
+;;; To register new user from the REPL or application console
+(defun cla-new-user-registration-REPL (email-id password)
   "registers the new user from the console without confirmation"
   (with-cla-db
     (when (find-user 'EMAIL-ID email-id)
       (error 'cla-login-error
-             :format-control "Email-id ~A already exists in the Tripr system."
+             :format-control "Email-id ~A already exists in this CLA system."
              :format-arguments (list email-id)))
     (add-new-user email-id (hash-password password))
     (let ((login-data (find-user 'EMAIL-ID email-id)))
-      (complete-user-registration (id login-data))
+      (complete-user-registration (id login-data) (confirmation-reset-url login-data)) ;cheating
       login-data)))
 
 
 (defun change-user-password (login-data old-password new-password)
-  "Changes the login-data  password and updates the login data in the db"
+  "Verifies the old PASSWORD in LOGIN-DATA with new PASSWORD and then updates the LOGIN-DATA with the new PASSWORD."
   (with-cla-db
     (cond ((not (and login-data old-password new-password))
 	   (error 'cla-login-error :format-control "None of LOGIN-DATA, OLD-PASSWORD and NEW-PASSWORD can be NULL"))
@@ -113,9 +89,10 @@
            (update-user (id login-data) 'password new-password)))))
 
 
-;;; password reset flow
+;;; password reset request
 (defun reset-password-request (login-data)
-  ""
+  "Generates the new RESET-URL and adds it to the LOGIN-DATA. Changes the user-status-code. The calling function will have to
+take care of followup action like sending email(s) etc."
   (with-cla-db
     (setf (confirmation-reset-url login-data) (generate-unique-id)
           (user-status login-data) (user-status-code 'PASSWORD-RESET-REQUESTED))
@@ -124,12 +101,12 @@
 
 
 (defun reset-password (login-data password reset-url)
-  ""
+  "Resets the PASSWORD. Verifies the RESET-URL and then sets the PASSWORD hash."
   (when (string= (confirmation-reset-url login-data) reset-url)
     (with-cla-db
         (setf (password login-data) (hash-password password)
               (confirmation-reset-url login-data) ""
-              (user-status login-data) (user-status-code 'CONFIRMED))
+              (user-status login-data) (user-status-code 'ACTIVE))
       (update-login-data login-data)
       login-data)))
 

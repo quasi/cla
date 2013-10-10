@@ -28,10 +28,11 @@
                           :path *auth-cookie-path*))
 
 
+;;; FIXME - what happens if there is no login-instance found ? Need to list all use-cases
 (defun make-auth-cookie (login-data &key (last-accessed-timestamp (get-universal-time)))
   "Given a LOGIN-DATA object, this function simply returns the auth cookie as a base64 encoded string. The format of the unencrypted auth cookie is the following:
-16-byte-random-string|last-login-timestamp|last-accessed-timestamp|login-data-id|checksum"
-  (let* ((login-instance (find-login-instance (id login-data) 0))
+16-byte-random-string|last-login-timestamp|last-accessed-timestamp|login-data-id|persistent-login|checksum"
+  (let* ((login-instance (find-login-instance (id login-data) 0 remote-addr))
          (auth-cookie (format nil (concatenate 'string "~{~a~^" *auth-cookie-delimiter* "~}")
                              (list (make-random-string 16)
                                    (login-timestamp login-instance)
@@ -43,12 +44,7 @@
 
 
 
-;;; TODO -- add encryption and checksum
-;;; checks the validity of the auth-cookie in the incoming request
-;;; returns nil if the cookie is absent
-;;; returns nil AND deletes the cookie if the cookie is invalid
-;;; return the login-dataname/login-dataid if the cookie is valid
-;;; Cookie format
+;;; FIXME : generally rework
 (defun is-auth-cookie-valid (&key (auth-cookie-value (cookie-in *auth-cookie-name*) auth-cookie-value-supplied-p)
 			       (reset-last-accessed-timestamp t)
 			       (delete-if-timeout t)
@@ -89,7 +85,8 @@ The URI the login page will redirect back to once the authentication succeeds. D
 		   (last-login (parse-integer (second cookie-elements)))
 		   (last-accessed-timestamp (parse-integer (third cookie-elements)))
 		   (login-data-id (parse-integer-or-zero (fourth cookie-elements)))
-		   (checksum (fifth cookie-elements))
+                   (persistent-login (fifth cookie-elements))
+		   (checksum (sixth cookie-elements))
 		   (new-checksum (sha1-hex-digest (subseq auth-cookie 0 (search *auth-cookie-delimiter* auth-cookie :from-end t))))
 		   (login-data nil))
 
@@ -101,7 +98,7 @@ The URI the login page will redirect back to once the authentication succeeds. D
 		;; (setf login-data (find-user 'EMAIL-ID email-id)) ;; why we need login-data ?
 		;; checking for timeouts
                 (when (and (and honour-timeout-p (< (+ last-accessed-timestamp *inactivity-timeout*) timestamp))
-                           (not persistent)
+                           (not persistent-login)
                            delete-if-timeout
                            (not auth-cookie-value-supplied-p))
                   (destroy-auth-cookie)

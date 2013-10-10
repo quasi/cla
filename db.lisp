@@ -149,11 +149,12 @@
 
 ;;; Add new user
 (defun add-new-user (email-id password)
-  "Adds user to the login-data table"
-  (let ((new-reset-url (generate-unique-id)))
+  "Adds user to the LOGIN-DATA table. Initial status is UNCONFIRMED"
+  (let ((new-reset-url (generate-unique-id))
+        (user-status (user-status-code 'UNCONFIRMED)))
     (insert-records :into 'login-data
                     :attributes '(password email-id user_status confirmation-reset-url)
-                    :values `(,password ,email-id 0 ,new-reset-url))))
+                    :values `(,password ,email-id ,user-status ,new-reset-url))))
 
 
 (defun add-new-login-instance (login-data-id remote-addr app-id)
@@ -170,8 +171,14 @@
                   :where [and [= [login-data-id] login-data-id] [= [app-id] app-id]]))
 
 
-(defun find-login-instance (login-data-id app-id)
-  (select 'login-instances :where [and [= [login-data-id] login-data-id] [= [app-id] app-id]] :refresh t))
+;;; FIXME need to think of all the cases here - multiple logins from different hosts etc.
+(defun find-login-instance (login-data-id app-id remote-addr)
+  (caar
+   (select 'login-instances
+           :where [and [= [login-data-id] login-data-id] [= [app-id] app-id] [= [remote-addr] remote-addr]]
+           :order-by '(([id] :desc))
+           :limit 1
+           :refresh t)))
 
 
 ;;; find user by EMAIL-ID, ID or CONFIRMATION-RESET-URL
